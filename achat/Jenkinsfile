@@ -15,7 +15,7 @@ pipeline {
             }
         }
 
-        stage('Vérification du projet') {
+        stage('Verification du projet') {
             steps {
                 bat 'dir'
                 dir('achat') {
