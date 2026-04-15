@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    tools {
+        maven 'Maven'
+    }
+
+    stages {
+        stage('Checkout depuis Git') {
+            steps {
+                checkout scm
+                echo 'Code récupéré depuis GitHub.'
+            }
+        }
+
+        stage('Vérification du projet') {
+            steps {
+                bat 'dir'
+                dir('achat') {
+                    bat 'dir'
+                }
+            }
+        }
+
+        stage('Build Maven') {
+            steps {
+                dir('achat') {
+                    bat 'mvn clean compile'
+                }
+            }
+        }
+
+        stage('Tests') {
+            steps {
+                dir('achat') {
+                    bat 'mvn test -DfailIfNoTests=false'
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                dir('achat') {
+                    bat 'mvn package -DskipTests'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build terminé avec succès.'
+        }
+        failure {
+            echo 'Build échoué.'
+        }
+        always {
+            archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true, allowEmptyArchive: true
+        }
+    }
+}
