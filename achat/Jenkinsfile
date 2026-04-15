@@ -6,9 +6,6 @@ pipeline {
         timestamps()
     }
 
-    tools {
-        maven 'Maven'
-    }
 
     stages {
         stage('Checkout depuis Git') {
