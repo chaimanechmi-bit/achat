@@ -6,7 +6,6 @@ pipeline {
         timestamps()
     }
 
-
     stages {
         stage('Checkout depuis Git') {
             steps {
@@ -32,10 +31,32 @@ pipeline {
             }
         }
 
-        stage('Tests') {
+        stage('Tests avec JaCoCo') {
             steps {
                 dir('achat') {
                     bat 'mvn test -DfailIfNoTests=false'
+                }
+            }
+        }
+
+        stage('Analyse SonarQube') {
+            steps {
+                dir('achat') {
+                    withSonarQubeEnv('SonarQube') {
+                        bat '''
+                            mvn sonar:sonar ^
+                            -Dsonar.projectKey=achat ^
+                            -Dsonar.projectName=achat
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -53,11 +74,15 @@ pipeline {
         success {
             echo 'Build terminé avec succès.'
         }
+
         failure {
             echo 'Build échoué.'
         }
+
         always {
-            archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true, allowEmptyArchive: true
+            archiveArtifacts artifacts: 'achat/target/*.jar',
+                             fingerprint: true,
+                             allowEmptyArchive: true
         }
     }
 }
