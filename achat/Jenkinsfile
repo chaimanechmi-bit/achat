@@ -6,6 +6,10 @@ pipeline {
         timestamps()
     }
 
+    environment {
+        IMAGE_NAME = 'achat-app'
+    }
+
     stages {
         stage('Checkout depuis Git') {
             steps {
@@ -77,15 +81,39 @@ pipeline {
                 }
             }
         }
+
+        stage('Build Docker Image') {
+            steps {
+                dir('achat') {
+                    echo 'Construction de l image Docker...'
+                    bat 'docker build -t %IMAGE_NAME% .'
+                }
+            }
+        }
+
+        stage('Run Application with Docker Compose') {
+            steps {
+                dir('achat') {
+                    echo 'Arret des anciens conteneurs...'
+                    bat 'docker compose down --remove-orphans || exit 0'
+
+                    echo 'Demarrage de PostgreSQL, pgAdmin et application...'
+                    bat 'docker compose up -d'
+
+                    echo 'Verification des conteneurs...'
+                    bat 'docker ps'
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo 'Build terminé avec succès.'
+            echo 'success.'
         }
 
         failure {
-            echo 'Build échoué.'
+            echo 'failure.'
         }
 
         always {
