@@ -55,7 +55,6 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
-                        if not exist security-reports mkdir security-reports
                         if not exist security-reports\\dependency-check mkdir security-reports\\dependency-check
 
                         ${dcHome}\\bin\\dependency-check.bat ^
@@ -95,7 +94,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY FS SCAN (CLEAN)
+        // TRIVY FS
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -136,19 +135,17 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE FIXED (NO TAR)
+        // TRIVY IMAGE (FIXED)
         // =========================
         stage('Trivy Image Scan') {
             steps {
-                dir('achat') {
-                    bat '''
-                    docker run --rm ^
-                    aquasec/trivy image ^
-                    --no-progress ^
-                    --severity HIGH,CRITICAL ^
-                    %FULL_IMAGE%
-                    '''
-                }
+                bat """
+                docker run --rm ^
+                aquasec/trivy image ^
+                --no-progress ^
+                --severity HIGH,CRITICAL ^
+                %FULL_IMAGE%
+                """
             }
         }
 
@@ -167,19 +164,16 @@ pipeline {
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
-                dir('achat') {
-                    bat '''
-                    if not exist security-reports mkdir security-reports
-                    if not exist security-reports\\zap mkdir security-reports\\zap
+                bat '''
+                if not exist security-reports\\zap mkdir security-reports\\zap
 
-                    docker run --rm ^
-                    -v "%cd%\\security-reports\\zap:/zap/wrk" ^
-                    ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089 ^
-                    -r zap-report.html ^
-                    -I
-                    '''
-                }
+                docker run --rm ^
+                -v "%cd%\\security-reports\\zap:/zap/wrk" ^
+                ghcr.io/zaproxy/zaproxy zap-baseline.py ^
+                -t http://host.docker.internal:8089 ^
+                -r zap-report.html ^
+                -I
+                '''
             }
         }
 
@@ -203,8 +197,7 @@ pipeline {
         always {
             archiveArtifacts artifacts: '''
                 achat/target/*.jar,
-                achat/security-reports/**/*,
-                achat/reports/**
+                achat/security-reports/**/*
             ''', fingerprint: true
 
             junit allowEmptyResults: true,
