@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  # Spring Boot Actuator (métriques JVM + application)
+  - job_name: 'spring-boot-achat'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['app:8089']
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Node Exporter (CPU, RAM, Disque)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # cAdvisor (métriques conteneurs Docker)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # Jenkins (si actif sur le port 8081)
+  - job_name: 'jenkins'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['jenkins:8081']   # adaptez le hostname/port si différent
