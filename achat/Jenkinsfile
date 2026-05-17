@@ -14,12 +14,18 @@ pipeline {
 
     stages {
 
+        // =========================
+        // CHECKOUT
+        // =========================
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
             }
         }
 
+        // =========================
+        // VERIFICATION
+        // =========================
         stage('Verification du projet') {
             steps {
                 bat 'dir'
@@ -29,6 +35,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // BUILD MAVEN
+        // =========================
         stage('Build Maven') {
             steps {
                 dir('achat') {
@@ -37,6 +46,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // TESTS
+        // =========================
         stage('Tests') {
             steps {
                 dir('achat') {
@@ -46,7 +58,7 @@ pipeline {
         }
 
         // =========================
-        // OWASP DEPENDENCY CHECK FIXED
+        // OWASP DEPENDENCY CHECK (FIXED)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -71,6 +83,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // SONARQUBE
+        // =========================
         stage('SonarQube Analysis') {
             steps {
                 dir('achat') {
@@ -85,6 +100,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // PACKAGE
+        // =========================
         stage('Package') {
             steps {
                 dir('achat') {
@@ -94,7 +112,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY FS
+        // TRIVY FS SCAN
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -111,6 +129,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // NEXUS DEPLOY
+        // =========================
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
@@ -126,6 +147,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // DOCKER BUILD
+        // =========================
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -135,7 +159,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE (FIXED)
+        // TRIVY IMAGE SCAN (FIXED)
         // =========================
         stage('Trivy Image Scan') {
             steps {
@@ -149,6 +173,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // RUN DOCKER COMPOSE
+        // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
@@ -160,7 +187,7 @@ pipeline {
         }
 
         // =========================
-        // OWASP ZAP FIXED
+        // OWASP ZAP (FIXED)
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
@@ -177,6 +204,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // MONITORING CHECK
+        // =========================
         stage('Check Monitoring') {
             steps {
                 bat 'docker ps --filter "name=prometheus"'
@@ -185,6 +215,9 @@ pipeline {
         }
     }
 
+    // =========================
+    // POST ACTIONS
+    // =========================
     post {
         success {
             echo '✅ Pipeline DevSecOps OK'
