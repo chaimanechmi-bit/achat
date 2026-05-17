@@ -9,12 +9,18 @@ pipeline {
 
     stages {
 
+        // =========================
+        // CHECKOUT
+        // =========================
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
+        // =========================
+        // BUILD
+        // =========================
         stage('Clean & Compile') {
             steps {
                 dir('achat') {
@@ -31,6 +37,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // OWASP DEPENDENCY CHECK
+        // =========================
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -54,6 +63,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // SONARQUBE
+        // =========================
         stage('SonarQube Analysis') {
             steps {
                 dir('achat') {
@@ -64,6 +76,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // PACKAGE
+        // =========================
         stage('Package') {
             steps {
                 dir('achat') {
@@ -72,6 +87,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // TRIVY FS SCAN
+        // =========================
         stage('Trivy FS Scan') {
             steps {
                 dir('achat') {
@@ -87,6 +105,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // BUILD DOCKER IMAGE
+        // =========================
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -96,7 +117,7 @@ pipeline {
         }
 
         // =========================
-        // FIXED TRIVY IMAGE SCAN
+        // FIXED TRIVY IMAGE SCAN (IMPORTANT)
         // =========================
         stage('Trivy Image Scan') {
             steps {
@@ -121,6 +142,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // RUN STACK
+        // =========================
         stage('Run Application & Stack') {
             steps {
                 dir('achat') {
@@ -131,6 +155,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // OWASP ZAP
+        // =========================
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
@@ -148,6 +175,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // MONITORING CHECK
+        // =========================
         stage('Check Monitoring') {
             steps {
                 bat 'docker ps --filter "name=prometheus"'
@@ -155,6 +185,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // NEXUS DEPLOY
+        // =========================
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
@@ -170,6 +203,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // ARCHIVE
+        // =========================
         stage('Archive Artifact') {
             steps {
                 archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
@@ -183,7 +219,7 @@ pipeline {
         }
 
         failure {
-            echo '❌ Pipeline FAILED (Security / Build / Scan)'
+            echo '❌ Pipeline FAILED (Build / Security / Docker / Scan)'
         }
 
         always {
