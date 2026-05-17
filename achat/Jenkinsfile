@@ -64,7 +64,6 @@ pipeline {
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
-                        --noupdate ^
                         --nvdMaxRetryCount 2
                         """
                     }
