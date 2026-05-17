@@ -5,7 +5,6 @@ pipeline {
         IMAGE_NAME = 'achat-app'
         IMAGE_TAG = 'latest'
         FULL_IMAGE = "achat-app:latest"
-        TRIVY_CACHE = "trivy-cache"
     }
 
     stages {
@@ -27,7 +26,7 @@ pipeline {
         stage('Test') {
             steps {
                 dir('achat') {
-                    bat 'mvn test -DfailIfNoTests=false'
+                    bat 'mvn test'
                 }
             }
         }
@@ -40,13 +39,12 @@ pipeline {
 
                         bat """
                         if not exist reports mkdir reports
-                        if not exist reports\\dependency-check mkdir reports\\dependency-check
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
-                        --scan pom.xml ^
+                        --scan . ^
                         --format HTML ^
-                        --out reports\\dependency-check ^
+                        --out reports ^
                         --disableCentral ^
                         --noupdate ^
                         --nvdMaxRetryCount 2
@@ -74,23 +72,17 @@ pipeline {
             }
         }
 
-        // =========================
-        // TRIVY FS SCAN
-        // =========================
         stage('Trivy FS Scan') {
             steps {
                 dir('achat') {
-                    bat """
-                    if not exist ${TRIVY_CACHE} mkdir ${TRIVY_CACHE}
-
+                    bat '''
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v "%cd%/${TRIVY_CACHE}:/root/.cache" ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
                     /project
-                    """
+                    '''
                 }
             }
         }
@@ -104,24 +96,27 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE FIX FINAL (NO MIRROR PROBLEM)
+        // FIXED TRIVY IMAGE SCAN
         // =========================
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
-                    bat """
-                    if not exist ${TRIVY_CACHE} mkdir ${TRIVY_CACHE}
+                    bat '''
+                    if not exist trivy-cache mkdir trivy-cache
+
+                    docker save %FULL_IMAGE% -o image.tar
 
                     docker run --rm ^
-                    -v "%cd%/${TRIVY_CACHE}:/root/.cache" ^
+                    -v "%cd%:/project" ^
+                    -v "%cd%/trivy-cache:/root/.cache/" ^
                     aquasec/trivy image ^
+                    --input /project/image.tar ^
+                    --timeout 60m ^
                     --no-progress ^
-                    --timeout 30m ^
-                    --download-db-only false ^
-                    --cache-dir /root/.cache ^
+                    --scanners vuln ^
                     --severity HIGH,CRITICAL ^
-                    %FULL_IMAGE%
-                    """
+                    --skip-db-update
+                    '''
                 }
             }
         }
@@ -145,7 +140,7 @@ pipeline {
                     docker run --rm ^
                     -v "%cd%\\reports:/zap/wrk" ^
                     ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
+                    -t http://host.docker.internal:8089 ^
                     -r zap-report.html ^
                     -I
                     '''
@@ -188,7 +183,7 @@ pipeline {
         }
 
         failure {
-            echo '❌ Pipeline FAILED'
+            echo '❌ Pipeline FAILED (Security / Build / Scan)'
         }
 
         always {
