@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    options {
-        disableConcurrentBuilds()
-        timestamps()
-    }
-
     environment {
         IMAGE_NAME = 'achat-app'
         IMAGE_TAG = 'latest'
@@ -14,31 +9,13 @@ pipeline {
 
     stages {
 
-        // =========================
-        // CHECKOUT
-        // =========================
-        stage('Checkout depuis Git') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        // =========================
-        // VERIFICATION
-        // =========================
-        stage('Verification du projet') {
-            steps {
-                bat 'dir'
-                dir('achat') {
-                    bat 'dir'
-                }
-            }
-        }
-
-        // =========================
-        // BUILD MAVEN
-        // =========================
-        stage('Build Maven') {
+        stage('Clean & Compile') {
             steps {
                 dir('achat') {
                     bat 'mvn clean compile'
@@ -46,19 +23,16 @@ pipeline {
             }
         }
 
-        // =========================
-        // TESTS
-        // =========================
-        stage('Tests') {
+        stage('Test') {
             steps {
                 dir('achat') {
-                    bat 'mvn test -DfailIfNoTests=false'
+                    bat 'mvn test'
                 }
             }
         }
 
         // =========================
-        // OWASP DEPENDENCY CHECK (FIXED)
+        // OWASP DEPENDENCY CHECK FIXED
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -67,13 +41,14 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
-                        if not exist security-reports\\dependency-check mkdir security-reports\\dependency-check
+                        if not exist reports mkdir reports
+                        if not exist reports\\dependency-check mkdir reports\\dependency-check
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
                         --scan pom.xml ^
                         --format HTML ^
-                        --out security-reports\\dependency-check ^
+                        --out reports\\dependency-check ^
                         --disableCentral ^
                         --noupdate ^
                         --nvdMaxRetryCount 2
@@ -83,26 +58,16 @@ pipeline {
             }
         }
 
-        // =========================
-        // SONARQUBE
-        // =========================
         stage('SonarQube Analysis') {
             steps {
                 dir('achat') {
                     withSonarQubeEnv('SonarQube') {
-                        bat '''
-                        mvn sonar:sonar ^
-                        -Dsonar.projectKey=achat ^
-                        -Dsonar.projectName=achat
-                        '''
+                        bat 'mvn sonar:sonar'
                     }
                 }
             }
         }
 
-        // =========================
-        // PACKAGE
-        // =========================
         stage('Package') {
             steps {
                 dir('achat') {
@@ -112,7 +77,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY FS SCAN
+        // TRIVY FS SCAN (OK)
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -120,6 +85,7 @@ pipeline {
                     bat '''
                     docker run --rm ^
                     -v "%cd%:/project" ^
+                    -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
@@ -129,27 +95,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // NEXUS DEPLOY
-        // =========================
-        stage('Publish to Nexus') {
-            steps {
-                dir('achat') {
-                    configFileProvider([
-                        configFile(
-                            fileId: 'nexus-maven-settings',
-                            variable: 'MAVEN_SETTINGS'
-                        )
-                    ]) {
-                        bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
-                    }
-                }
-            }
-        }
-
-        // =========================
-        // DOCKER BUILD
-        // =========================
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -159,27 +104,26 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE SCAN (FIXED)
+        // TRIVY IMAGE FIXED (NO image.tar ❌)
         // =========================
         stage('Trivy Image Scan') {
             steps {
-                bat """
-                docker run --rm ^
-                aquasec/trivy image ^
-                --no-progress ^
-                --severity HIGH,CRITICAL ^
-                %FULL_IMAGE%
-                """
+                dir('achat') {
+                    bat '''
+                    docker run --rm ^
+                    aquasec/trivy image ^
+                    --no-progress ^
+                    --severity HIGH,CRITICAL ^
+                    %FULL_IMAGE%
+                    '''
+                }
             }
         }
 
-        // =========================
-        // RUN DOCKER COMPOSE
-        // =========================
-        stage('Run Application with Docker Compose') {
+        stage('Run Application & Stack') {
             steps {
                 dir('achat') {
-                    bat 'docker compose down --remove-orphans || exit 0'
+                    bat 'docker compose down -v --remove-orphans || exit 0'
                     bat 'docker compose up -d'
                     bat 'docker ps'
                 }
@@ -187,52 +131,66 @@ pipeline {
         }
 
         // =========================
-        // OWASP ZAP (FIXED)
+        // OWASP ZAP FIXED (reports folder propre)
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
-                bat '''
-                if not exist security-reports\\zap mkdir security-reports\\zap
+                dir('achat') {
+                    bat '''
+                    if not exist reports mkdir reports
+                    if not exist reports\\zap mkdir reports\\zap
 
-                docker run --rm ^
-                -v "%cd%\\security-reports\\zap:/zap/wrk" ^
-                ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                -t http://host.docker.internal:8089 ^
-                -r zap-report.html ^
-                -I
-                '''
+                    docker run --rm ^
+                    -v "%cd%\\reports\\zap:/zap/wrk" ^
+                    ghcr.io/zaproxy/zaproxy zap-baseline.py ^
+                    -t http://host.docker.internal:8089 ^
+                    -r zap-report.html ^
+                    -I
+                    '''
+                }
             }
         }
 
-        // =========================
-        // MONITORING CHECK
-        // =========================
         stage('Check Monitoring') {
             steps {
                 bat 'docker ps --filter "name=prometheus"'
                 bat 'docker ps --filter "name=grafana"'
             }
         }
+
+        stage('Publish to Nexus') {
+            steps {
+                dir('achat') {
+                    configFileProvider([
+                        configFile(
+                            fileId: '96c23311-fbc7-4aa0-a4c4-bc0686d66999',
+                            variable: 'MAVEN_SETTINGS'
+                        )
+                    ]) {
+                        bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
+                    }
+                }
+            }
+        }
+
+        stage('Archive Artifact') {
+            steps {
+                archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
+                archiveArtifacts artifacts: 'achat/reports/**/*', fingerprint: true
+            }
+        }
     }
 
-    // =========================
-    // POST ACTIONS
-    // =========================
     post {
         success {
             echo '✅ Pipeline DevSecOps OK'
         }
 
         failure {
-            echo '❌ Pipeline FAILED'
+            echo '❌ Pipeline FAILED (Security / Build / Scan)'
         }
 
         always {
-            archiveArtifacts artifacts: '''
-                achat/target/*.jar,
-                achat/security-reports/**/*
-            ''', fingerprint: true
-
             junit allowEmptyResults: true,
                   testResults: 'achat/target/surefire-reports/*.xml'
         }
