@@ -31,9 +31,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // OWASP DEPENDENCY CHECK FIXED
-        // =========================
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -51,9 +48,7 @@ pipeline {
                         --out reports\\dependency-check ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2 ^
-                        --exclude **\\image.tar ^
-                        --exclude **\\*.tar
+                        --nvdMaxRetryCount 2
                         """
                     }
                 }
@@ -85,9 +80,11 @@ pipeline {
             steps {
                 dir('achat') {
                     bat '''
+                    if not exist trivy-cache mkdir trivy-cache
+
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
+                    -v "%cd%/trivy-cache:/root/.cache" ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
@@ -106,16 +103,22 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE SCAN
+        // TRIVY IMAGE SCAN OPTIMISÉ
         // =========================
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
                     bat '''
+                    if not exist trivy-cache mkdir trivy-cache
+
                     docker run --rm ^
+                    -v "%cd%/trivy-cache:/root/.cache" ^
                     aquasec/trivy image ^
                     --no-progress ^
+                    --timeout 30m ^
                     --severity HIGH,CRITICAL ^
+                    --cache-dir /root/.cache ^
+                    --skip-db-update ^
                     %FULL_IMAGE%
                     '''
                 }
@@ -132,9 +135,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // OWASP ZAP
-        // =========================
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
