@@ -38,7 +38,7 @@ pipeline {
             }
         }
 
-        stage('Tests avec JaCoCo') {
+        stage('Tests') {
             steps {
                 dir('achat') {
                     bat 'mvn test -DfailIfNoTests=false'
@@ -47,7 +47,7 @@ pipeline {
         }
 
         // =========================
-        // SECURITY - OWASP DC
+        // OWASP DEPENDENCY CHECK (STABLE)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -64,6 +64,7 @@ pipeline {
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
+                        --noupdate ^
                         --nvdMaxRetryCount 2
                         """
                     }
@@ -71,15 +72,14 @@ pipeline {
             }
         }
 
-        stage('Analyse SonarQube') {
+        stage('SonarQube Analysis') {
             steps {
                 dir('achat') {
-                    echo 'Analyse de la qualite du code avec SonarQube...'
                     withSonarQubeEnv('SonarQube') {
                         bat '''
-                            mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar ^
-                            -Dsonar.projectKey=achat ^
-                            -Dsonar.projectName=achat
+                        mvn sonar:sonar ^
+                        -Dsonar.projectKey=achat ^
+                        -Dsonar.projectName=achat
                         '''
                     }
                 }
@@ -95,7 +95,7 @@ pipeline {
         }
 
         // =========================
-        // SECURITY - TRIVY FS
+        // TRIVY FS SCAN
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -116,7 +116,6 @@ pipeline {
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
-                    echo 'Publication de l artifact dans Nexus...'
                     configFileProvider([
                         configFile(
                             fileId: 'nexus-maven-settings',
@@ -132,14 +131,13 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
-                    echo 'Construction de l image Docker...'
                     bat 'docker build -t %FULL_IMAGE% .'
                 }
             }
         }
 
         // =========================
-        // SECURITY - TRIVY IMAGE
+        // TRIVY IMAGE SCAN
         // =========================
         stage('Trivy Image Scan') {
             steps {
@@ -154,7 +152,7 @@ pipeline {
                     -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy image ^
                     --input /project/image.tar ^
-                    --timeout 60m ^
+                    --timeout 20m ^
                     --no-progress ^
                     --scanners vuln ^
                     --severity HIGH,CRITICAL ^
@@ -167,20 +165,15 @@ pipeline {
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
-                    echo 'Arret des anciens conteneurs...'
                     bat 'docker compose down --remove-orphans || exit 0'
-
-                    echo 'Demarrage de PostgreSQL, pgAdmin et application...'
                     bat 'docker compose up -d'
-
-                    echo 'Verification des conteneurs...'
                     bat 'docker ps'
                 }
             }
         }
 
         // =========================
-        // SECURITY - OWASP ZAP
+        // OWASP ZAP
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
@@ -209,17 +202,15 @@ pipeline {
 
     post {
         success {
-            echo 'success.'
+            echo '✅ Pipeline DevSecOps OK'
         }
 
         failure {
-            echo 'failure.'
+            echo '❌ Pipeline FAILED'
         }
 
         always {
-            archiveArtifacts artifacts: 'achat/target/*.jar',
-                             fingerprint: true,
-                             allowEmptyArchive: true
+            archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
 
             junit allowEmptyResults: true,
                   testResults: 'achat/target/surefire-reports/*.xml'
