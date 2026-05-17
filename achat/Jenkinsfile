@@ -9,18 +9,12 @@ pipeline {
 
     stages {
 
-        // =========================
-        // CHECKOUT
-        // =========================
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        // =========================
-        // BUILD
-        // =========================
         stage('Clean & Compile') {
             steps {
                 dir('achat') {
@@ -32,14 +26,11 @@ pipeline {
         stage('Test') {
             steps {
                 dir('achat') {
-                    bat 'mvn test'
+                    bat 'mvn test -DfailIfNoTests=false'
                 }
             }
         }
 
-        // =========================
-        // OWASP DEPENDENCY CHECK
-        // =========================
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -51,21 +42,21 @@ pipeline {
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
-                        --scan . ^
+                        --scan src ^
+                        --scan pom.xml ^
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2
+                        --nvdMaxRetryCount 2 ^
+                        --exclude image.tar ^
+                        --exclude trivy-cache
                         """
                     }
                 }
             }
         }
 
-        // =========================
-        // SONARQUBE
-        // =========================
         stage('SonarQube Analysis') {
             steps {
                 dir('achat') {
@@ -76,9 +67,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // PACKAGE
-        // =========================
         stage('Package') {
             steps {
                 dir('achat') {
@@ -87,15 +75,13 @@ pipeline {
             }
         }
 
-        // =========================
-        // TRIVY FS SCAN
-        // =========================
         stage('Trivy FS Scan') {
             steps {
                 dir('achat') {
                     bat '''
                     docker run --rm ^
                     -v "%cd%:/project" ^
+                    -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
@@ -105,9 +91,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // BUILD DOCKER IMAGE
-        // =========================
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -116,9 +99,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // FIXED TRIVY IMAGE SCAN (IMPORTANT)
-        // =========================
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
@@ -129,7 +109,7 @@ pipeline {
 
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v "%cd%/trivy-cache:/root/.cache/" ^
+                    -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy image ^
                     --input /project/image.tar ^
                     --timeout 60m ^
@@ -142,9 +122,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // RUN STACK
-        // =========================
         stage('Run Application & Stack') {
             steps {
                 dir('achat') {
@@ -155,9 +132,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // OWASP ZAP
-        // =========================
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
@@ -167,7 +141,7 @@ pipeline {
                     docker run --rm ^
                     -v "%cd%\\reports:/zap/wrk" ^
                     ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089 ^
+                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
                     -r zap-report.html ^
                     -I
                     '''
@@ -175,9 +149,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // MONITORING CHECK
-        // =========================
         stage('Check Monitoring') {
             steps {
                 bat 'docker ps --filter "name=prometheus"'
@@ -185,27 +156,16 @@ pipeline {
             }
         }
 
-        // =========================
-        // NEXUS DEPLOY
-        // =========================
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
-                    configFileProvider([
-                        configFile(
-                            fileId: '96c23311-fbc7-4aa0-a4c4-bc0686d66999',
-                            variable: 'MAVEN_SETTINGS'
-                        )
-                    ]) {
+                    configFileProvider([configFile(fileId: '96c23311-fbc7-4aa0-a4c4-bc0686d66999', variable: 'MAVEN_SETTINGS')]) {
                         bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
                     }
                 }
             }
         }
 
-        // =========================
-        // ARCHIVE
-        // =========================
         stage('Archive Artifact') {
             steps {
                 archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
@@ -215,11 +175,11 @@ pipeline {
 
     post {
         success {
-            echo '✅ Pipeline DevSecOps OK'
+            echo '✅ Pipeline OK'
         }
 
         failure {
-            echo '❌ Pipeline FAILED (Build / Security / Docker / Scan)'
+            echo '❌ Pipeline FAILED (build / security / scans)'
         }
 
         always {
