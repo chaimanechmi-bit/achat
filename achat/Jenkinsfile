@@ -17,7 +17,6 @@ pipeline {
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
-                echo 'Code récupéré depuis GitHub.'
             }
         }
 
@@ -47,7 +46,7 @@ pipeline {
         }
 
         // =========================
-        // OWASP DEPENDENCY CHECK (STABLE)
+        // OWASP DEPENDENCY CHECK FIXED
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -56,13 +55,14 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
-                        if not exist reports mkdir reports
+                        if not exist security-reports mkdir security-reports
+                        if not exist security-reports\\dependency-check mkdir security-reports\\dependency-check
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
-                        --scan . ^
+                        --scan pom.xml ^
                         --format HTML ^
-                        --out reports ^
+                        --out security-reports\\dependency-check ^
                         --disableCentral ^
                         --noupdate ^
                         --nvdMaxRetryCount 2
@@ -95,7 +95,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY FS SCAN
+        // TRIVY FS SCAN (CLEAN)
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -103,7 +103,6 @@ pipeline {
                     bat '''
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
@@ -137,26 +136,17 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE SCAN
+        // TRIVY IMAGE FIXED (NO TAR)
         // =========================
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
                     bat '''
-                    if not exist trivy-cache mkdir trivy-cache
-
-                    docker save %FULL_IMAGE% -o image.tar
-
                     docker run --rm ^
-                    -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy image ^
-                    --input /project/image.tar ^
-                    --timeout 20m ^
                     --no-progress ^
-                    --scanners vuln ^
                     --severity HIGH,CRITICAL ^
-                    --skip-db-update
+                    %FULL_IMAGE%
                     '''
                 }
             }
@@ -173,18 +163,19 @@ pipeline {
         }
 
         // =========================
-        // OWASP ZAP
+        // OWASP ZAP FIXED
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
                     bat '''
-                    if not exist reports mkdir reports
+                    if not exist security-reports mkdir security-reports
+                    if not exist security-reports\\zap mkdir security-reports\\zap
 
                     docker run --rm ^
-                    -v "%cd%\\reports:/zap/wrk" ^
+                    -v "%cd%\\security-reports\\zap:/zap/wrk" ^
                     ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
+                    -t http://host.docker.internal:8089 ^
                     -r zap-report.html ^
                     -I
                     '''
@@ -210,7 +201,11 @@ pipeline {
         }
 
         always {
-            archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
+            archiveArtifacts artifacts: '''
+                achat/target/*.jar,
+                achat/security-reports/**/*,
+                achat/reports/**
+            ''', fingerprint: true
 
             junit allowEmptyResults: true,
                   testResults: 'achat/target/surefire-reports/*.xml'
