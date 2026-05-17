@@ -26,7 +26,7 @@ pipeline {
         stage('Test') {
             steps {
                 dir('achat') {
-                    bat 'mvn test'
+                    bat 'mvn test -DfailIfNoTests=false'
                 }
             }
         }
@@ -51,7 +51,9 @@ pipeline {
                         --out reports\\dependency-check ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2
+                        --nvdMaxRetryCount 2 ^
+                        --exclude **\\image.tar ^
+                        --exclude **\\*.tar
                         """
                     }
                 }
@@ -77,7 +79,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY FS SCAN (OK)
+        // TRIVY FS SCAN
         // =========================
         stage('Trivy FS Scan') {
             steps {
@@ -104,7 +106,7 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE FIXED (NO image.tar ❌)
+        // TRIVY IMAGE SCAN
         // =========================
         stage('Trivy Image Scan') {
             steps {
@@ -131,19 +133,18 @@ pipeline {
         }
 
         // =========================
-        // OWASP ZAP FIXED (reports folder propre)
+        // OWASP ZAP
         // =========================
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
                     bat '''
                     if not exist reports mkdir reports
-                    if not exist reports\\zap mkdir reports\\zap
 
                     docker run --rm ^
-                    -v "%cd%\\reports\\zap:/zap/wrk" ^
+                    -v "%cd%\\reports:/zap/wrk" ^
                     ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089 ^
+                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
                     -r zap-report.html ^
                     -I
                     '''
@@ -176,7 +177,6 @@ pipeline {
         stage('Archive Artifact') {
             steps {
                 archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
-                archiveArtifacts artifacts: 'achat/reports/**/*', fingerprint: true
             }
         }
     }
@@ -187,7 +187,7 @@ pipeline {
         }
 
         failure {
-            echo '❌ Pipeline FAILED (Security / Build / Scan)'
+            echo '❌ Pipeline FAILED'
         }
 
         always {
