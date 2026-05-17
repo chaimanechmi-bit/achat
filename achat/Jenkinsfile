@@ -5,6 +5,7 @@ pipeline {
         IMAGE_NAME = 'achat-app'
         IMAGE_TAG = 'latest'
         FULL_IMAGE = "achat-app:latest"
+        TRIVY_CACHE = "trivy-cache"
     }
 
     stages {
@@ -79,17 +80,17 @@ pipeline {
         stage('Trivy FS Scan') {
             steps {
                 dir('achat') {
-                    bat '''
-                    if not exist trivy-cache mkdir trivy-cache
+                    bat """
+                    if not exist ${TRIVY_CACHE} mkdir ${TRIVY_CACHE}
 
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v "%cd%/trivy-cache:/root/.cache" ^
+                    -v "%cd%/${TRIVY_CACHE}:/root/.cache" ^
                     aquasec/trivy fs ^
                     --no-progress ^
                     --scanners vuln,secret ^
                     /project
-                    '''
+                    """
                 }
             }
         }
@@ -103,24 +104,24 @@ pipeline {
         }
 
         // =========================
-        // TRIVY IMAGE SCAN OPTIMISÉ
+        // TRIVY IMAGE FIX FINAL (NO MIRROR PROBLEM)
         // =========================
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
-                    bat '''
-                    if not exist trivy-cache mkdir trivy-cache
+                    bat """
+                    if not exist ${TRIVY_CACHE} mkdir ${TRIVY_CACHE}
 
                     docker run --rm ^
-                    -v "%cd%/trivy-cache:/root/.cache" ^
+                    -v "%cd%/${TRIVY_CACHE}:/root/.cache" ^
                     aquasec/trivy image ^
                     --no-progress ^
                     --timeout 30m ^
-                    --severity HIGH,CRITICAL ^
+                    --download-db-only false ^
                     --cache-dir /root/.cache ^
-                    --skip-db-update ^
+                    --severity HIGH,CRITICAL ^
                     %FULL_IMAGE%
-                    '''
+                    """
                 }
             }
         }
