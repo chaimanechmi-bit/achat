@@ -68,6 +68,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // 🔥 FIX OWASP (NO image.tar scan)
+        // =========================
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -80,6 +83,7 @@ pipeline {
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
                         --scan . ^
+                        --exclude image.tar ^
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
@@ -176,19 +180,18 @@ pipeline {
         }
 
         // =========================
-        // 🚀 RUN DOCKER COMPOSE (FIXED)
+        // 🚀 FIXED DOCKER COMPOSE RUN
         // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
-                    echo ==== STARTING STACK WITH DOCKER COMPOSE ====
+                    echo ==== STARTING STACK ====
 
                     docker compose down -v --remove-orphans || exit 0
 
                     docker compose --env-file .env up -d
 
-                    echo ==== CONTAINERS STATUS ====
                     docker ps
                     '''
                 }
