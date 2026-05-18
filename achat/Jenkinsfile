@@ -8,12 +8,15 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'achat-app'
-        IMAGE_TAG = 'latest'
-        FULL_IMAGE = "achat-app:latest"
+        IMAGE_TAG  = 'latest'
+        FULL_IMAGE = 'achat-app:latest'
     }
 
     stages {
 
+        // ─────────────────────────────────────────
+        // 1. CHECKOUT
+        // ─────────────────────────────────────────
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
@@ -21,20 +24,17 @@ pipeline {
             }
         }
 
-        // =========================
-        // 🔐 LOAD .ENV FROM JENKINS CREDENTIALS
-        // =========================
+        // ─────────────────────────────────────────
+        // 2. INJECT .ENV
+        // ─────────────────────────────────────────
         stage('Load ENV securely') {
             steps {
                 dir('achat') {
                     withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
                         bat '''
                         echo ==== LOADING .ENV FROM JENKINS CREDENTIALS ====
-
                         if exist .env del .env
-
                         copy "%ENV_FILE%" .env
-
                         echo .env injected successfully
                         '''
                     }
@@ -42,6 +42,9 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 3. VERIFICATION
+        // ─────────────────────────────────────────
         stage('Verification du projet') {
             steps {
                 bat 'dir'
@@ -51,6 +54,9 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 4. BUILD
+        // ─────────────────────────────────────────
         stage('Build Maven') {
             steps {
                 dir('achat') {
@@ -59,6 +65,9 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 5. TESTS
+        // ─────────────────────────────────────────
         stage('Tests avec JaCoCo') {
             steps {
                 dir('achat') {
@@ -67,9 +76,12 @@ pipeline {
             }
         }
 
-        // =========================
-        // 🔥 FIX OWASP (IMPORTANT FIX)
-        // =========================
+        // ─────────────────────────────────────────
+        // 6. OWASP DEPENDENCY CHECK
+        //    FIX : suppression de image.tar avant
+        //    le scan + --disableArchive pour éviter
+        //    l'erreur InvalidPathException Windows
+        // ─────────────────────────────────────────
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -77,39 +89,58 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
+                        echo ==== NETTOYAGE AVANT SCAN OWASP ====
+                        if exist image.tar del /f image.tar
+
                         if not exist reports mkdir reports
 
                         ${dcHome}\\bin\\dependency-check.bat ^
-                        --project achat-app ^
-                        --scan . ^
-                        --exclude image.tar ^
-                        --exclude **/image.tar ^
-                        --format HTML ^
-                        --out reports ^
-                        --disableArchive ^
-                        --disableCentral ^
-                        --noupdate ^
-                        --nvdMaxRetryCount 2
+                            --project achat-app ^
+                            --scan . ^
+                            --format HTML ^
+                            --out reports ^
+                            --disableArchive ^
+                            --disableCentral ^
+                            --noupdate ^
+                            --nvdMaxRetryCount 2
                         """
                     }
                 }
             }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing         : true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll              : true,
+                        reportDir            : 'achat/reports',
+                        reportFiles          : 'dependency-check-report.html',
+                        reportName           : 'OWASP Dependency Check'
+                    ])
+                }
+            }
         }
 
+        // ─────────────────────────────────────────
+        // 7. SONARQUBE
+        // ─────────────────────────────────────────
         stage('Analyse SonarQube') {
             steps {
                 dir('achat') {
                     withSonarQubeEnv('SonarQube') {
                         bat '''
                         mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar ^
-                        -Dsonar.projectKey=achat ^
-                        -Dsonar.projectName=achat
+                            -Dsonar.projectKey=achat ^
+                            -Dsonar.projectName=achat
                         '''
                     }
                 }
             }
         }
 
+        // ─────────────────────────────────────────
+        // 8. PACKAGE
+        // ─────────────────────────────────────────
         stage('Package') {
             steps {
                 dir('achat') {
@@ -118,28 +149,34 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 9. TRIVY FS SCAN
+        // ─────────────────────────────────────────
         stage('Trivy FS Scan') {
             steps {
                 dir('achat') {
                     bat '''
                     docker run --rm ^
-                    -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
-                    aquasec/trivy fs ^
-                    --no-progress ^
-                    --scanners vuln,secret ^
-                    /project
+                        -v "%cd%:/project" ^
+                        -v trivy-cache:/root/.cache/ ^
+                        aquasec/trivy fs ^
+                        --no-progress ^
+                        --scanners vuln,secret ^
+                        /project
                     '''
                 }
             }
         }
 
+        // ─────────────────────────────────────────
+        // 10. NEXUS
+        // ─────────────────────────────────────────
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
                     configFileProvider([
                         configFile(
-                            fileId: 'nexus-maven-settings',
+                            fileId  : 'nexus-maven-settings',
                             variable: 'MAVEN_SETTINGS'
                         )
                     ]) {
@@ -149,6 +186,9 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 11. BUILD DOCKER IMAGE
+        // ─────────────────────────────────────────
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -157,6 +197,11 @@ pipeline {
             }
         }
 
+        // ─────────────────────────────────────────
+        // 12. TRIVY IMAGE SCAN
+        //    image.tar est créé ICI, APRÈS le scan
+        //    OWASP — plus aucun conflit possible
+        // ─────────────────────────────────────────
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
@@ -166,36 +211,39 @@ pipeline {
                     docker save %FULL_IMAGE% -o image.tar
 
                     docker run --rm ^
-                    -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
-                    aquasec/trivy image ^
-                    --input /project/image.tar ^
-                    --timeout 60m ^
-                    --no-progress ^
-                    --scanners vuln ^
-                    --severity HIGH,CRITICAL ^
-                    --skip-db-update
+                        -v "%cd%:/project" ^
+                        -v trivy-cache:/root/.cache/ ^
+                        aquasec/trivy image ^
+                        --input /project/image.tar ^
+                        --timeout 60m ^
+                        --no-progress ^
+                        --scanners vuln ^
+                        --severity HIGH,CRITICAL ^
+                        --skip-db-update
                     '''
                 }
             }
         }
 
+        // ─────────────────────────────────────────
+        // 13. DOCKER COMPOSE
+        // ─────────────────────────────────────────
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
                     echo ==== STARTING STACK ====
-
                     docker compose down -v --remove-orphans || exit 0
-
                     docker compose --env-file .env up -d
-
                     docker ps
                     '''
                 }
             }
         }
 
+        // ─────────────────────────────────────────
+        // 14. OWASP ZAP SCAN
+        // ─────────────────────────────────────────
         stage('OWASP ZAP Scan') {
             steps {
                 dir('achat') {
@@ -203,16 +251,31 @@ pipeline {
                     if not exist reports mkdir reports
 
                     docker run --rm ^
-                    -v "%cd%\\reports:/zap/wrk" ^
-                    ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
-                    -r zap-report.html ^
-                    -I
+                        -v "%cd%\\reports:/zap/wrk" ^
+                        ghcr.io/zaproxy/zaproxy zap-baseline.py ^
+                        -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
+                        -r zap-report.html ^
+                        -I
                     '''
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing         : true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll              : true,
+                        reportDir            : 'achat/reports',
+                        reportFiles          : 'zap-report.html',
+                        reportName           : 'OWASP ZAP Report'
+                    ])
                 }
             }
         }
 
+        // ─────────────────────────────────────────
+        // 15. MONITORING
+        // ─────────────────────────────────────────
         stage('Check Monitoring') {
             steps {
                 bat 'docker ps --filter "name=prometheus"'
@@ -221,22 +284,31 @@ pipeline {
         }
     }
 
+    // ─────────────────────────────────────────────
+    // POST
+    // ─────────────────────────────────────────────
     post {
         success {
-            echo 'Pipeline SUCCESS.'
+            echo '✅ Pipeline terminé avec succès.'
         }
 
         failure {
-            echo 'Pipeline FAILED.'
+            echo '❌ Pipeline en échec.'
         }
 
         always {
-            archiveArtifacts artifacts: 'achat/target/*.jar',
-                             fingerprint: true,
-                             allowEmptyArchive: true
+            // Nettoyage de image.tar pour ne pas polluer
+            // le prochain scan OWASP
+            dir('achat') {
+                bat 'if exist image.tar del /f image.tar'
+            }
 
-            junit allowEmptyResults: true,
-                  testResults: 'achat/target/surefire-reports/*.xml'
+            archiveArtifacts artifacts         : 'achat/target/*.jar',
+                             fingerprint       : true,
+                             allowEmptyArchive : true
+
+            junit allowEmptyResults : true,
+                  testResults       : 'achat/target/surefire-reports/*.xml'
         }
     }
 }
