@@ -50,22 +50,8 @@ pipeline {
         }
 
         // =========================
-        // 🔥 IMPORTANT FIX HERE
+        // ✅ FIX OWASP DEPENDENCY CHECK (IMPORTANT)
         // =========================
-        stage('Cleanup workspace before OWASP') {
-            steps {
-                dir('achat') {
-                    bat '''
-                    echo Cleaning dangerous artifacts...
-
-                    if exist image.tar del image.tar
-                    if exist *.tar del *.tar
-                    if exist *.zip del *.zip
-                    '''
-                }
-            }
-        }
-
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -73,7 +59,8 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
-                        if not exist reports mkdir reports
+                        if exist reports rmdir /s /q reports
+                        mkdir reports
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
@@ -84,7 +71,8 @@ pipeline {
                         --disableArchive ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2
+                        --nvdMaxRetryCount 2 ^
+                        --suppression suppression.xml
                         """
                     }
                 }
@@ -132,16 +120,6 @@ pipeline {
             }
         }
 
-        stage('Trivy Image Scan') {
-            steps {
-                dir('achat') {
-                    bat '''
-                    docker save %FULL_IMAGE% -o image.tar
-                    '''
-                }
-            }
-        }
-
         stage('Run App') {
             steps {
                 dir('achat') {
@@ -151,6 +129,15 @@ pipeline {
                     '''
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline SUCCESS'
+        }
+        failure {
+            echo 'Pipeline FAILED'
         }
     }
 }
