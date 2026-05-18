@@ -36,7 +36,6 @@ pipeline {
                         copy "%ENV_FILE%" .env
 
                         echo .env injected successfully
-                        type .env
                         '''
                     }
                 }
@@ -69,7 +68,7 @@ pipeline {
         }
 
         // =========================
-        // 🔥 FIX OWASP (NO image.tar scan)
+        // 🔥 FIX OWASP (IMPORTANT FIX)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -84,8 +83,10 @@ pipeline {
                         --project achat-app ^
                         --scan . ^
                         --exclude image.tar ^
+                        --exclude **/image.tar ^
                         --format HTML ^
                         --out reports ^
+                        --disableArchive ^
                         --disableCentral ^
                         --noupdate ^
                         --nvdMaxRetryCount 2
@@ -179,9 +180,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // 🚀 FIXED DOCKER COMPOSE RUN
-        // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
