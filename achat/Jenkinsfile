@@ -17,24 +17,21 @@ pipeline {
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
-                echo 'Code récupéré depuis GitHub.'
             }
         }
 
         // =========================
-        // 🔐 LOAD .ENV FROM JENKINS CREDENTIALS
+        // 🔐 ENV SECURE
         // =========================
         stage('Load ENV securely') {
             steps {
                 dir('achat') {
                     withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
                         bat '''
-                        echo ==== LOADING .ENV ====
+                        echo Loading .env from Jenkins credentials
 
                         if exist .env del .env
                         copy "%ENV_FILE%" .env
-
-                        echo .env injected successfully
                         '''
                     }
                 }
@@ -43,7 +40,6 @@ pipeline {
 
         stage('Verification du projet') {
             steps {
-                bat 'dir'
                 dir('achat') {
                     bat 'dir'
                 }
@@ -67,7 +63,7 @@ pipeline {
         }
 
         // =========================
-        // 🔥 OWASP FIX (IMPORTANT)
+        // 🔥 OWASP FIX FINAL (IMPORTANT)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -82,6 +78,7 @@ pipeline {
                         --project achat-app ^
                         --scan src ^
                         --scan pom.xml ^
+                        --exclude image.tar ^
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
@@ -134,14 +131,7 @@ pipeline {
         stage('Publish to Nexus') {
             steps {
                 dir('achat') {
-                    configFileProvider([
-                        configFile(
-                            fileId: 'nexus-maven-settings',
-                            variable: 'MAVEN_SETTINGS'
-                        )
-                    ]) {
-                        bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
-                    }
+                    bat 'mvn deploy -DskipTests'
                 }
             }
         }
@@ -158,8 +148,6 @@ pipeline {
             steps {
                 dir('achat') {
                     bat '''
-                    if not exist trivy-cache mkdir trivy-cache
-
                     docker save %FULL_IMAGE% -o image.tar
 
                     docker run --rm ^
@@ -167,21 +155,21 @@ pipeline {
                     -v trivy-cache:/root/.cache/ ^
                     aquasec/trivy image ^
                     --input /project/image.tar ^
-                    --timeout 60m ^
-                    --no-progress ^
-                    --scanners vuln ^
                     --severity HIGH,CRITICAL ^
-                    --skip-db-update
+                    --no-progress
                     '''
                 }
             }
         }
 
+        // =========================
+        // 🚀 RUN FIXED
+        // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
-                    echo ==== START STACK ====
+                    echo Starting stack...
 
                     docker compose down -v --remove-orphans || exit 0
 
@@ -220,20 +208,11 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline SUCCESS.'
+            echo 'SUCCESS'
         }
 
         failure {
-            echo 'Pipeline FAILED.'
-        }
-
-        always {
-            archiveArtifacts artifacts: 'achat/target/*.jar',
-                             fingerprint: true,
-                             allowEmptyArchive: true
-
-            junit allowEmptyResults: true,
-                  testResults: 'achat/target/surefire-reports/*.xml'
+            echo 'FAILED'
         }
     }
 }
