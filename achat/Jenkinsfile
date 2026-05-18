@@ -17,21 +17,24 @@ pipeline {
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
+                echo 'Code récupéré depuis GitHub.'
             }
         }
 
         // =========================
-        // 🔐 ENV SECURE
+        // 🔐 LOAD .ENV SECURE
         // =========================
         stage('Load ENV securely') {
             steps {
                 dir('achat') {
                     withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
                         bat '''
-                        echo Loading .env from Jenkins credentials
+                        echo ==== LOADING ENV ====
 
                         if exist .env del .env
                         copy "%ENV_FILE%" .env
+
+                        echo ENV loaded
                         '''
                     }
                 }
@@ -63,7 +66,7 @@ pipeline {
         }
 
         // =========================
-        // 🔥 OWASP FIX FINAL (IMPORTANT)
+        // 🔥 OWASP FIX APPLIED
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -78,9 +81,9 @@ pipeline {
                         --project achat-app ^
                         --scan src ^
                         --scan pom.xml ^
-                        --exclude image.tar ^
                         --format HTML ^
                         --out reports ^
+                        --disableArchive ^
                         --disableCentral ^
                         --noupdate ^
                         --nvdMaxRetryCount 2
@@ -162,9 +165,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // 🚀 RUN FIXED
-        // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
@@ -208,11 +208,20 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS'
+            echo 'PIPELINE SUCCESS'
         }
 
         failure {
-            echo 'FAILED'
+            echo 'PIPELINE FAILED'
+        }
+
+        always {
+            archiveArtifacts artifacts: 'achat/target/*.jar',
+                             fingerprint: true,
+                             allowEmptyArchive: true
+
+            junit allowEmptyResults: true,
+                  testResults: 'achat/target/surefire-reports/*.xml'
         }
     }
 }
