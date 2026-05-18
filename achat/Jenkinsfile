@@ -33,6 +33,8 @@ pipeline {
 
                         if exist .env del .env
                         copy "%ENV_FILE%" .env
+
+                        echo .env injected successfully
                         '''
                     }
                 }
@@ -65,7 +67,7 @@ pipeline {
         }
 
         // =========================
-        // 🔥 FIX OWASP (REAL FIX)
+        // 🔥 OWASP FIX (IMPORTANT)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -179,8 +181,12 @@ pipeline {
             steps {
                 dir('achat') {
                     bat '''
+                    echo ==== START STACK ====
+
                     docker compose down -v --remove-orphans || exit 0
+
                     docker compose --env-file .env up -d
+
                     docker ps
                     '''
                 }
