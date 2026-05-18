@@ -125,8 +125,14 @@ pipeline {
             steps {
                 dir('achat') {
                     bat '''
+                    echo ==== LOADING ENV ====
+                    type .env
+
                     docker compose down -v --remove-orphans || exit 0
-                    docker compose --env-file .env up -d
+
+                    REM IMPORTANT: uses ONLY .env automatically
+                    docker compose up -d
+
                     docker ps
                     '''
                 }
