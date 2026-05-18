@@ -29,12 +29,14 @@ pipeline {
                 dir('achat') {
                     withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
                         bat '''
-                        echo ==== Injecting .env from Jenkins Credentials ====
+                        echo ==== LOADING .ENV FROM JENKINS CREDENTIALS ====
+
+                        if exist .env del .env
 
                         copy "%ENV_FILE%" .env
 
-                        echo .env loaded successfully
-                        dir
+                        echo .env injected successfully
+                        type .env
                         '''
                     }
                 }
@@ -173,16 +175,20 @@ pipeline {
             }
         }
 
+        // =========================
+        // 🚀 RUN DOCKER COMPOSE (FIXED)
+        // =========================
         stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
-                    echo ==== Starting Docker Compose ====
+                    echo ==== STARTING STACK WITH DOCKER COMPOSE ====
 
                     docker compose down -v --remove-orphans || exit 0
 
-                    docker compose up -d
+                    docker compose --env-file .env up -d
 
+                    echo ==== CONTAINERS STATUS ====
                     docker ps
                     '''
                 }
