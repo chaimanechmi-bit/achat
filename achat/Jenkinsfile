@@ -34,6 +34,22 @@ pipeline {
             }
         }
 
+        // =========================
+        // NETTOYAGE image.tar AVANT OWASP
+        // =========================
+        stage('Cleanup artifacts') {
+            steps {
+                dir('achat') {
+                    bat '''
+                    if exist image.tar (
+                        echo Suppression de image.tar...
+                        del /f /q image.tar
+                    )
+                    '''
+                }
+            }
+        }
+
         stage('Verification du projet') {
             steps {
                 bat 'dir'
@@ -59,9 +75,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // OWASP AVANT image.tar (clé du fix)
-        // =========================
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -146,7 +159,6 @@ pipeline {
             }
         }
 
-        // image.tar est créé ICI — après OWASP
         stage('Trivy Image Scan') {
             steps {
                 dir('achat') {
