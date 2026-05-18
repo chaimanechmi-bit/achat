@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
     environment {
         IMAGE_NAME = 'achat-app'
         IMAGE_TAG = 'latest'
@@ -9,13 +14,43 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout depuis Git') {
             steps {
                 checkout scm
+                echo 'Code récupéré depuis GitHub.'
             }
         }
 
-        stage('Clean & Compile') {
+        // =========================
+        // 🔐 LOAD .ENV FROM JENKINS CREDENTIALS
+        // =========================
+        stage('Load ENV securely') {
+            steps {
+                dir('achat') {
+                    withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
+                        bat '''
+                        echo ==== Injecting .env from Jenkins Credentials ====
+
+                        copy "%ENV_FILE%" .env
+
+                        echo .env loaded successfully
+                        dir
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Verification du projet') {
+            steps {
+                bat 'dir'
+                dir('achat') {
+                    bat 'dir'
+                }
+            }
+        }
+
+        stage('Build Maven') {
             steps {
                 dir('achat') {
                     bat 'mvn clean compile'
@@ -23,7 +58,7 @@ pipeline {
             }
         }
 
-        stage('Test') {
+        stage('Tests avec JaCoCo') {
             steps {
                 dir('achat') {
                     bat 'mvn test -DfailIfNoTests=false'
@@ -42,25 +77,27 @@ pipeline {
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
-                        --scan src ^
-                        --scan pom.xml ^
+                        --scan . ^
                         --format HTML ^
                         --out reports ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2 ^
-                        --exclude image.tar
+                        --nvdMaxRetryCount 2
                         """
                     }
                 }
             }
         }
 
-        stage('SonarQube Analysis') {
+        stage('Analyse SonarQube') {
             steps {
                 dir('achat') {
                     withSonarQubeEnv('SonarQube') {
-                        bat 'mvn sonar:sonar'
+                        bat '''
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar ^
+                        -Dsonar.projectKey=achat ^
+                        -Dsonar.projectName=achat
+                        '''
                     }
                 }
             }
@@ -86,6 +123,21 @@ pipeline {
                     --scanners vuln,secret ^
                     /project
                     '''
+                }
+            }
+        }
+
+        stage('Publish to Nexus') {
+            steps {
+                dir('achat') {
+                    configFileProvider([
+                        configFile(
+                            fileId: 'nexus-maven-settings',
+                            variable: 'MAVEN_SETTINGS'
+                        )
+                    ]) {
+                        bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
+                    }
                 }
             }
         }
@@ -121,16 +173,14 @@ pipeline {
             }
         }
 
-        stage('Run Application & Stack') {
+        stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
-                    echo ==== LOADING ENV ====
-                    type .env
+                    echo ==== Starting Docker Compose ====
 
                     docker compose down -v --remove-orphans || exit 0
 
-                    REM IMPORTANT: uses ONLY .env automatically
                     docker compose up -d
 
                     docker ps
@@ -162,34 +212,22 @@ pipeline {
                 bat 'docker ps --filter "name=grafana"'
             }
         }
-
-        stage('Publish to Nexus') {
-            steps {
-                dir('achat') {
-                    configFileProvider([configFile(fileId: '96c23311-fbc7-4aa0-a4c4-bc0686d66999', variable: 'MAVEN_SETTINGS')]) {
-                        bat 'mvn deploy -s %MAVEN_SETTINGS% -DskipTests'
-                    }
-                }
-            }
-        }
-
-        stage('Archive Artifact') {
-            steps {
-                archiveArtifacts artifacts: 'achat/target/*.jar', fingerprint: true
-            }
-        }
     }
 
     post {
         success {
-            echo '✅ Pipeline OK'
+            echo 'Pipeline SUCCESS.'
         }
 
         failure {
-            echo '❌ Pipeline FAILED'
+            echo 'Pipeline FAILED.'
         }
 
         always {
+            archiveArtifacts artifacts: 'achat/target/*.jar',
+                             fingerprint: true,
+                             allowEmptyArchive: true
+
             junit allowEmptyResults: true,
                   testResults: 'achat/target/surefire-reports/*.xml'
         }
