@@ -34,9 +34,6 @@ pipeline {
             }
         }
 
-        // =========================
-        // NETTOYAGE image.tar AVANT OWASP
-        // =========================
         stage('Cleanup artifacts') {
             steps {
                 dir('achat') {
@@ -189,6 +186,14 @@ pipeline {
                     docker compose down -v --remove-orphans || exit 0
                     docker compose --env-file .env up -d
                     docker ps
+                    '''
+
+                    echo 'Attente demarrage application Spring Boot...'
+                    sleep(time: 60, unit: 'SECONDS')
+
+                    bat '''
+                    echo Verification que l application repond...
+                    curl -f http://localhost:8089/SpringMVC/operateur/retrieve-all-operateurs || echo "App pas encore prete mais on continue"
                     '''
                 }
             }
