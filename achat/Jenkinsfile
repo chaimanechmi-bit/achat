@@ -183,17 +183,24 @@ pipeline {
             steps {
                 dir('achat') {
                     bat '''
-                    docker compose down -v --remove-orphans || exit 0
+                    echo ==== Arret anciens containers ====
+                    docker compose down -v --remove-orphans
+
+                    echo ==== Demarrage stack ====
                     docker compose --env-file .env up -d
+
+                    echo ==== Etat des containers ====
                     docker ps
+
+                    echo ==== Logs application (30 dernieres lignes) ====
+                    docker compose logs --tail=30
                     '''
 
-                    echo 'Attente demarrage application Spring Boot...'
-                    sleep(time: 60, unit: 'SECONDS')
+                    sleep(time: 90, unit: 'SECONDS')
 
                     bat '''
-                    echo Verification que l application repond...
-                    curl -f http://localhost:8089/SpringMVC/operateur/retrieve-all-operateurs || echo "App pas encore prete mais on continue"
+                    echo ==== Verification apres attente ====
+                    docker ps
                     '''
                 }
             }
