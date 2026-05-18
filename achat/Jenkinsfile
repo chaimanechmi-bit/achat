@@ -20,6 +20,9 @@ pipeline {
             }
         }
 
+        // =========================
+        // ENV FILE (.env from Jenkins Credentials)
+        // =========================
         stage('Load ENV securely') {
             steps {
                 dir('achat') {
@@ -33,6 +36,15 @@ pipeline {
             }
         }
 
+        stage('Verification du projet') {
+            steps {
+                bat 'dir'
+                dir('achat') {
+                    bat 'dir'
+                }
+            }
+        }
+
         stage('Build Maven') {
             steps {
                 dir('achat') {
@@ -41,7 +53,7 @@ pipeline {
             }
         }
 
-        stage('Tests') {
+        stage('Tests avec JaCoCo') {
             steps {
                 dir('achat') {
                     bat 'mvn test -DfailIfNoTests=false'
@@ -50,7 +62,7 @@ pipeline {
         }
 
         // =========================
-        // ✅ FIX OWASP DEPENDENCY CHECK (IMPORTANT)
+        // OWASP DEPENDENCY CHECK (TON CODE OK)
         // =========================
         stage('OWASP Dependency Check') {
             steps {
@@ -59,33 +71,30 @@ pipeline {
                         def dcHome = tool 'owasp-dc'
 
                         bat """
-                        if exist reports rmdir /s /q reports
-                        mkdir reports
+                        if not exist reports mkdir reports
 
                         ${dcHome}\\bin\\dependency-check.bat ^
                         --project achat-app ^
-                        --scan src ^
-                        --scan pom.xml ^
+                        --scan . ^
                         --format HTML ^
                         --out reports ^
-                        --disableArchive ^
                         --disableCentral ^
                         --noupdate ^
-                        --nvdMaxRetryCount 2 ^
-                        --suppression suppression.xml
+                        --nvdMaxRetryCount 2
                         """
                     }
                 }
             }
         }
 
-        stage('SonarQube') {
+        stage('Analyse SonarQube') {
             steps {
                 dir('achat') {
                     withSonarQubeEnv('SonarQube') {
                         bat '''
                         mvn sonar:sonar ^
-                        -Dsonar.projectKey=achat
+                        -Dsonar.projectKey=achat ^
+                        -Dsonar.projectName=achat
                         '''
                     }
                 }
@@ -112,6 +121,14 @@ pipeline {
             }
         }
 
+        stage('Publish to Nexus') {
+            steps {
+                dir('achat') {
+                    bat 'mvn deploy -DskipTests'
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 dir('achat') {
@@ -120,14 +137,58 @@ pipeline {
             }
         }
 
-        stage('Run App') {
+        stage('Trivy Image Scan') {
+            steps {
+                dir('achat') {
+                    bat '''
+                    docker save %FULL_IMAGE% -o image.tar
+
+                    docker run --rm ^
+                    -v "%cd%:/project" ^
+                    aquasec/trivy image ^
+                    --input /project/image.tar ^
+                    --severity HIGH,CRITICAL ^
+                    --no-progress
+                    '''
+                }
+            }
+        }
+
+        stage('Run Application with Docker Compose') {
             steps {
                 dir('achat') {
                     bat '''
                     docker compose down -v --remove-orphans || exit 0
                     docker compose --env-file .env up -d
+                    docker ps
                     '''
                 }
+            }
+        }
+
+        stage('OWASP ZAP Scan') {
+            steps {
+                dir('achat') {
+                    bat '''
+                    if not exist reports mkdir reports
+
+                    docker run --rm ^
+                    -v "%cd%\\reports:/zap/wrk" ^
+                    ghcr.io/zaproxy/zaproxy zap-baseline.py ^
+                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
+                    -r zap-report.html ^
+                    -I
+                    '''
+                }
+            }
+        }
+
+        stage('Check Monitoring') {
+            steps {
+                bat '''
+                docker ps --filter "name=prometheus"
+                docker ps --filter "name=grafana"
+                '''
             }
         }
     }
@@ -136,8 +197,18 @@ pipeline {
         success {
             echo 'Pipeline SUCCESS'
         }
+
         failure {
             echo 'Pipeline FAILED'
+        }
+
+        always {
+            archiveArtifacts artifacts: 'achat/target/*.jar',
+                             fingerprint: true,
+                             allowEmptyArchive: true
+
+            junit allowEmptyResults: true,
+                  testResults: 'achat/target/surefire-reports/*.xml'
         }
     }
 }
