@@ -179,29 +179,12 @@ pipeline {
             }
         }
 
-        stage('Run Application with Docker Compose') {
+        stage('Run Application & Stack') {
             steps {
                 dir('achat') {
-                    bat '''
-                    echo ==== Arret anciens containers ====
-                    docker compose down -v --remove-orphans
-
-                    echo ==== Demarrage stack ====
-                    docker compose --env-file .env up -d
-
-                    echo ==== Etat des containers ====
-                    docker ps
-
-                    echo ==== Logs application (30 dernieres lignes) ====
-                    docker compose logs --tail=30
-                    '''
-
-                    sleep(time: 90, unit: 'SECONDS')
-
-                    bat '''
-                    echo ==== Verification apres attente ====
-                    docker ps
-                    '''
+                    bat 'docker compose down -v --remove-orphans || exit 0'
+                    bat 'docker compose --env-file .env up -d'
+                    bat 'docker ps'
                 }
             }
         }
@@ -211,7 +194,6 @@ pipeline {
                 dir('achat') {
                     bat '''
                     if not exist reports mkdir reports
-
                     docker run --rm ^
                     -v "%cd%\\reports:/zap/wrk" ^
                     ghcr.io/zaproxy/zaproxy zap-baseline.py ^
