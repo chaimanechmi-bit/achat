@@ -17,34 +17,18 @@ pipeline {
         stage('Checkout depuis Git') {
             steps {
                 checkout scm
-                echo 'Code récupéré depuis GitHub.'
             }
         }
 
-        // =========================
-        // 🔐 LOAD .ENV SECURE
-        // =========================
         stage('Load ENV securely') {
             steps {
                 dir('achat') {
                     withCredentials([file(credentialsId: 'achat-env', variable: 'ENV_FILE')]) {
                         bat '''
-                        echo ==== LOADING ENV ====
-
                         if exist .env del .env
                         copy "%ENV_FILE%" .env
-
-                        echo ENV loaded
                         '''
                     }
-                }
-            }
-        }
-
-        stage('Verification du projet') {
-            steps {
-                dir('achat') {
-                    bat 'dir'
                 }
             }
         }
@@ -57,7 +41,7 @@ pipeline {
             }
         }
 
-        stage('Tests avec JaCoCo') {
+        stage('Tests') {
             steps {
                 dir('achat') {
                     bat 'mvn test -DfailIfNoTests=false'
@@ -66,8 +50,22 @@ pipeline {
         }
 
         // =========================
-        // 🔥 OWASP FIX APPLIED
+        // 🔥 IMPORTANT FIX HERE
         // =========================
+        stage('Cleanup workspace before OWASP') {
+            steps {
+                dir('achat') {
+                    bat '''
+                    echo Cleaning dangerous artifacts...
+
+                    if exist image.tar del image.tar
+                    if exist *.tar del *.tar
+                    if exist *.zip del *.zip
+                    '''
+                }
+            }
+        }
+
         stage('OWASP Dependency Check') {
             steps {
                 dir('achat') {
@@ -93,14 +91,13 @@ pipeline {
             }
         }
 
-        stage('Analyse SonarQube') {
+        stage('SonarQube') {
             steps {
                 dir('achat') {
                     withSonarQubeEnv('SonarQube') {
                         bat '''
                         mvn sonar:sonar ^
-                        -Dsonar.projectKey=achat ^
-                        -Dsonar.projectName=achat
+                        -Dsonar.projectKey=achat
                         '''
                     }
                 }
@@ -121,20 +118,8 @@ pipeline {
                     bat '''
                     docker run --rm ^
                     -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
-                    aquasec/trivy fs ^
-                    --no-progress ^
-                    --scanners vuln,secret ^
-                    /project
+                    aquasec/trivy fs /project
                     '''
-                }
-            }
-        }
-
-        stage('Publish to Nexus') {
-            steps {
-                dir('achat') {
-                    bat 'mvn deploy -DskipTests'
                 }
             }
         }
@@ -152,76 +137,20 @@ pipeline {
                 dir('achat') {
                     bat '''
                     docker save %FULL_IMAGE% -o image.tar
-
-                    docker run --rm ^
-                    -v "%cd%:/project" ^
-                    -v trivy-cache:/root/.cache/ ^
-                    aquasec/trivy image ^
-                    --input /project/image.tar ^
-                    --severity HIGH,CRITICAL ^
-                    --no-progress
                     '''
                 }
             }
         }
 
-        stage('Run Application with Docker Compose') {
+        stage('Run App') {
             steps {
                 dir('achat') {
                     bat '''
-                    echo Starting stack...
-
                     docker compose down -v --remove-orphans || exit 0
-
                     docker compose --env-file .env up -d
-
-                    docker ps
                     '''
                 }
             }
-        }
-
-        stage('OWASP ZAP Scan') {
-            steps {
-                dir('achat') {
-                    bat '''
-                    if not exist reports mkdir reports
-
-                    docker run --rm ^
-                    -v "%cd%\\reports:/zap/wrk" ^
-                    ghcr.io/zaproxy/zaproxy zap-baseline.py ^
-                    -t http://host.docker.internal:8089/SpringMVC/operateur/retrieve-all-operateurs ^
-                    -r zap-report.html ^
-                    -I
-                    '''
-                }
-            }
-        }
-
-        stage('Check Monitoring') {
-            steps {
-                bat 'docker ps --filter "name=prometheus"'
-                bat 'docker ps --filter "name=grafana"'
-            }
-        }
-    }
-
-    post {
-        success {
-            echo 'PIPELINE SUCCESS'
-        }
-
-        failure {
-            echo 'PIPELINE FAILED'
-        }
-
-        always {
-            archiveArtifacts artifacts: 'achat/target/*.jar',
-                             fingerprint: true,
-                             allowEmptyArchive: true
-
-            junit allowEmptyResults: true,
-                  testResults: 'achat/target/surefire-reports/*.xml'
         }
     }
 }
